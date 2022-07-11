@@ -141,7 +141,6 @@ function wavelength(xml::XMLDocument)
   λraw = content(find_element(find_element(calibrations, "WavelengthMapping"), "Wavelength"))
   parse.(Float64, split(λraw, ','))
 end
-encombre
 """
 Most of the time, there is only one frame and one ROI, so this function helps keeping things simple, stupid.
 """
