@@ -11,10 +11,10 @@ library.
 
 ## Installation
 
-The library is not yet registered. Use
+The library is registered. Use
 
 ```julia
-] add https://github.com/Klafyvel/SPEFiles.jl
+] add SPEFiles
 ```
 
 ## Usage
@@ -22,6 +22,8 @@ The library is not yet registered. Use
 Open a file like this :
 
 ```julia
+using SPEFiles
+
 file = SPEFile("myfile.spe")
 ```
 
