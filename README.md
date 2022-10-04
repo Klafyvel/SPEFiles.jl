@@ -7,7 +7,7 @@ The SPE 3.0 specification can be found
 [here](https://raw.githubusercontent.com/hududed/pyControl/master/Manual/LightField/Add-in%20and%20Automation%20SDK/SPE%203.0%20File%20Format%20Specification.pdf).
 
 The library is inspired by the [spe2py](https://github.com/ashirsch/spe2py)
-library, but should provide more features..
+library, but should provide more features.
 
 ## Installation
 
@@ -51,7 +51,7 @@ This is an `XMLDocument`, see `LightXML.jl` documentation for how to interact
 with it. With that you can retrieve all the experiment parameters used in
 LightField.
 
-**This package is under developpment, and I may brake it at some point, even though I'll try not to.**
+## Contributing
 
-If you have any feedback on how to improve it, please reach out using the issues
-!
+Contributions and feedbacks are welcome. Please reach out using issues !
+
