@@ -8,29 +8,30 @@ The SPE 3.0 specification can be found
 The library is inspired by the [spe2py](https://github.com/ashirsch/spe2py)
 library.
 
-The main exported functions are :
-- `SPEFile` to open and read a SPE file.
-- `counts` to get the number of counts registered by your detector.
-- `exposure` to get the exposure time.
-- `wavelength` to get an array storing the wavelengths.
+The main functions are :
+- [`SPEFile`](@ref) to open and read a SPE file.
+- [`exposure`](@ref) to get the exposure time.
+- [`experiment`](@ref) to get the xml representing the experiment in LightField
+- [`origin_summary`](@ref) to get file creator informations
+- [`devices`](@ref) to get xml data on the devices
 
 Here is an example of how to use it in practice to plot a file with a single frame and a single region of interest (ROI):
 
 ```julia
-using SPEFiles
+using SPEFiles, DataFrames
 
 file = SPEFile("myfile.spe")
-λ = wavelength(file)
-c = counts(file)
+df = DataFrame(file)
 
 using CairoMakie
-f, ax, l = lines(λ, c, axis=(xlabel="Wavelength (nm)", ylabel="Counts", title="My spectrim"))
+f, ax, l = lines(df.wavelength, df.count, axis=(xlabel="Wavelength (nm)", ylabel="Counts", title="My spectrum"))
 save("myspectrum.png", f)
 ```
 """
 module SPEFiles
 
 using LightXML
+using Tables
 
 
 const XML_FOOTER_OFFSET = 678
@@ -127,7 +128,7 @@ function SPEFile(io::IO)
         for roi ∈ datablocksregionofinterest
             data = zeros(dtype, roi.width, roi.height)
             read!(io, data)
-            push!(frame, data)
+            push!(frame, permutedims(data, (2,1)))
         end
         push!(frames, frame)
     end
@@ -149,11 +150,49 @@ end
 """
     length(f::SPEFile)
 
-Return the number of frames in `f`.
+Return number of frames × ∑_roi length(roi)
 """
 function Base.length(f::SPEFile)
-    length(f.frames)
+    length(f.frames) .* sum(length.(first(f.frames)))
 end
+
+"""
+    history(f::SPEFile)
+
+Return the history node of the object if it exists.
+"""
+function history end
+history(f::SPEFile) = history(f.xml)
+function history(xml::XMLDocument)
+    r = root(xml)
+    datahistories = find_element(r, "DataHistories")
+    if isnothing(datahistories)
+        return missing
+    end
+    find_element(datahistories, "DataHistory")
+end
+
+""" 
+    origin(f::SPEFile)
+
+Return the origin node of the object if it exists.
+"""
+function origin end
+origin(f::SPEFile) = origin(f.xml)
+function origin(xml::XMLDocument)
+    datahistory = history(xml)
+    if ismissing(datahistory)
+        return missing
+    end
+    find_element(datahistory, "Origin")
+end
+
+"""
+    origin_summary(f::SPEFile)
+
+Return a dict with origin metadata for the file. Keys are "software" "creator" "softwareVersion" "softwareCompany" "created"
+"""
+origin_summary(f::SPEFile) = attributes_dict(origin(f))
 
 """
     experiment(f::SPEFile)
@@ -163,13 +202,11 @@ Returns the xml object corresponding to the experiment used to take data. Refer 
 function experiment end
 experiment(f::SPEFile) = experiment(f.xml)
 function experiment(xml::XMLDocument)
-    r = root(xml)
-    datahistories = find_element(r, "DataHistories")
-    if isnothing(datahistories)
+    origin = origin(xml)
+    if ismissing(origin)
         return missing
     end
-    datahistory = find_element(datahistories, "DataHistory")
-    find_element(find_element(datahistory, "Origin"), "Experiment")
+    find_element(origin, "Experiment")
 end
 
 """
@@ -215,6 +252,11 @@ end
     wavelength(f::SPEFile)
 
 Return the wavelengths as an array.
+
+!!! warning "Deprecated"
+    This function is deprecated and will no longer be exported in the future.
+    You should rather use the Tables.jl interface.
+
 """
 function wavelength end
 wavelength(f::SPEFile) = wavelength(f.xml)
@@ -231,17 +273,83 @@ end
 """
     counts(f::SPEFile, [frames, [rois]])
 
-If `frames` is not given, return the first ROI of the first frame. Most of the time, there is only one frame and one ROI, so this function helps keeping things simple, stupid.
+If `frames` is not given, return the counts for all frames and rois.
 
 If `frames` is given, return the first ROI of the specified frames.
 
 If `rois` is given, return the given `rois` of the given `frames`.
+
+!!! warning "Deprecated"
+    This function is deprecated and will no longer be exported in the future.
+    You should rather use the Tables.jl interface.
+
 """
 function counts end
-counts(f::SPEFile) = f.frames[1][1]
+counts(f::SPEFile) = vcat(reshape.(Iterators.flatten(f.frames), :, 1)...)
 counts(f::SPEFile, frames) = map(x -> f.frames[x][1], frames)
 counts(f::SPEFile, frames, rois) = map(x -> f.frames[x][rois], frames)
 
-export SPEFile, experiment, devices, exposure, wavelength, counts
+# Tables.jl interface
+const COLUMNS = Symbol.(["wavelength", "count", "frame", "roi", "row", "column"])
+Tables.istable(::Type{<:SPEFile}) = true
+Tables.schema(::SPEFile{T}) where {T} = Tables.Schema(
+    COLUMNS,
+    [Float64, T, Int, Int, Int, Int]
+)
+Tables.columnaccess(::Type{<:SPEFile}) = true
+Tables.columns(f::SPEFile) = f
+function Tables.getcolumn(f::SPEFile, i::Int) 
+    Tables.getcolumn(f, COLUMNS[i])
+end
+function Tables.getcolumn(f::SPEFile, nm::Symbol)
+    if nm == :wavelength
+        w = wavelength(f)
+        col = Tables.getcolumn(f, :column)
+        w[col .+ 1]
+    elseif nm == :count
+        counts(f)
+    elseif nm == :frame
+        n_frames = length(f.frames)
+        size_one_frame = sum([l for l in length.(first(f.frames))])
+        vcat([repeat([i], size_one_frame) for i in 1:n_frames]...)
+    elseif nm == :roi
+        n_frames = length(f.frames)
+        size_rois = length.(first(f.frames))
+        rois_id = vcat([repeat([i], l) for (i,l) in enumerate(size_rois)]...)
+        repeat(rois_id, n_frames)
+    elseif nm == :row
+        n_frames = length(f.frames)
+        size_rois = size.(first(f.frames))
+        row_num = vcat(Iterators.flatten([[repeat([i-1], c) for i in 1:r] for (r,c) in size_rois])...)
+        repeat(row_num, n_frames)
+    elseif nm == :column
+        n_frames = length(f.frames)
+        size_rois = size.(first(f.frames))
+        col_num = vcat(Iterators.flatten([repeat(0:(c-1), r) for (r,c) in size_rois])...)
+        repeat(col_num, n_frames)
+    else
+        throw(ArgumentError("Column $nm does not exist for a SPEFile."))
+    end
+end
+Tables.columnnames(::SPEFile) = COLUMNS
+Tables.schema(::SPEFile{T}) where {T} = Tables.Schema(COLUMNS, [Float64, T, Int, Int, Int, Int])
+
+function Base.getproperty(f::T, sym::Symbol) where {T<:SPEFile}
+    try
+        Tables.getcolumn(f, sym)
+    catch e
+        if e isa ArgumentError 
+            getfield(f, sym)
+        else
+            rethrow(e)
+        end
+    end
+end
+
+function Base.propertynames(::SPEFile{T}, private::Bool=false) where {T}
+    [COLUMNS; fieldnames(SPEFile{T})...]
+end
+
+export SPEFile, experiment, devices, exposure, wavelength, counts, origin_summary
 
 end
