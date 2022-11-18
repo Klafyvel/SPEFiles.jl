@@ -202,11 +202,11 @@ Returns the xml object corresponding to the experiment used to take data. Refer 
 function experiment end
 experiment(f::SPEFile) = experiment(f.xml)
 function experiment(xml::XMLDocument)
-    origin = origin(xml)
-    if ismissing(origin)
+    orig = origin(xml)
+    if ismissing(orig)
         return missing
     end
-    find_element(origin, "Experiment")
+    find_element(orig, "Experiment")
 end
 
 """
@@ -245,7 +245,8 @@ function exposure(xml::XMLDocument)
     end
     camera = find_element(cameras, "Camera")
     shuttertiming = find_element(camera, "ShutterTiming")
-    parse(Float64, content(find_element(shuttertiming, "ExposureTime")))
+    exposuretime = find_element(shuttertiming, "ExposureTime")
+    parse(Float64, content(exposuretime))
 end
 
 """
@@ -266,8 +267,20 @@ function wavelength(xml::XMLDocument)
     if isnothing(calibrations)
         return missing
     end
-    λraw = content(find_element(find_element(calibrations, "WavelengthMapping"), "Wavelength"))
-    parse.(Float64, split(λraw, ','))
+    wavelengthmapping = find_element(calibrations, "WavelengthMapping")
+    wavelengthnode = find_element(wavelengthmapping, "Wavelength")
+    if isnothing(wavelengthnode)
+        @warn "Wavelength node not found. Falling back to WavelengthError."
+        wavelengthnode = find_element(wavelengthmapping, "WavelengthError")
+        if isnothing(wavelengthnode)
+            error("No wavelength found.")
+        end
+        λraw = content(wavelengthnode)
+        parse.(Float64, map(x->first(split(x, ',')), split(λraw, ' ')))
+    else
+        λraw = content(wavelengthnode)
+        parse.(Float64, split(λraw, ','))
+    end
 end
 
 """
@@ -332,7 +345,6 @@ function Tables.getcolumn(f::SPEFile, nm::Symbol)
     end
 end
 Tables.columnnames(::SPEFile) = COLUMNS
-Tables.schema(::SPEFile{T}) where {T} = Tables.Schema(COLUMNS, [Float64, T, Int, Int, Int, Int])
 
 function Base.getproperty(f::T, sym::Symbol) where {T<:SPEFile}
     try

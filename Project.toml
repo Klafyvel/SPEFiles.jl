@@ -1,7 +1,7 @@
 name = "SPEFiles"
 uuid = "ed854f67-b1dc-40c1-a595-92080aa32ec0"
 authors = ["Hugo Levy-Falk <hugo.levy-falk@universite-paris-saclay.fr> and contributors"]
-version = "0.2.0"
+version = "0.2.1"
 
 [deps]
 LightXML = "9c8b4983-aa76-5018-a973-4c85ecc9e179"
