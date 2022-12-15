@@ -58,6 +58,8 @@ struct SPEFile{T}
     xml::XMLDocument
     file_version::Float32
     frames::Array{SPEFrame{T},1}
+    frameexposurestarted::Union{Missing,Vector{Int64}}
+    frameexposureended::Union{Missing,Vector{Int64}}
 end
 
 Base.show(io::IO, x::SPEFile{T}) where {T} = print(io, "SPEFile{$T} v$(x.file_version), $(length(x.frames)) frame(s)")
@@ -120,10 +122,53 @@ function SPEFile(io::IO)
         size=parse(Int, attribute(datablock, "size")),
         stride=parse(Int, attribute(datablock, "stride"))
     ) for datablock ∈ child_elements(datablockframe)]
+    metaformat = find_element(root(xml), "MetaFormat")
+    # LightField only supports metadata per frame, so we should always have only
+    # one MetaBlock child.
+    metablock = if isnothing(metaformat)
+        nothing
+    else
+        find_element(metaformat, "MetaBlock")
+    end
+
+    metadataorder = []
+    exposurestartedpresent = false
+    exposureendedpresent = false
+    # Deciding on a course of action depending on the type of metadata.
+    if !isnothing(metablock)
+        for metadatatype in child_elements(metablock)
+            if name(metadatatype) != "TimeStamp"
+                @warn "Your SPE file contains metadata that are not supported by SPEFiles.jl at this time. You may want to open an issue on GitHub." name(metadatatype)
+                # In the spec all data types are 8 bytes long.
+                push!(metadataorder, (type="skip", size=8))
+                continue
+            end
+            event = attribute(metadatatype, "event")
+            push!(metadataorder, (type=event, size=8))
+            if event == "ExposureStarted"
+                exposurestartedpresent = true
+            elseif event == "ExposureEnded"
+                exposureendedpresent = true
+            else
+                @warn "Unsupported timestamp event type, it will be ignored." event
+            end
+        end
+    end
+    
+    if exposurestartedpresent
+        exposurestarted = zeros(Int64, numberofframes)
+    else
+        exposurestarted = missing
+    end
+    if exposureendedpresent
+        exposureended = zeros(Int64, numberofframes)
+    else
+        exposureended = missing
+    end
     # Reading binary data
     seek(io, HEADER_LENGTH)
     frames = SPEFrame{dtype}[]
-    for _ in 1:numberofframes
+    for i in 1:numberofframes
         frame = SPEFrame{dtype}()
         for roi ∈ datablocksregionofinterest
             data = zeros(dtype, roi.width, roi.height)
@@ -131,8 +176,18 @@ function SPEFile(io::IO)
             push!(frame, permutedims(data, (2,1)))
         end
         push!(frames, frame)
+        for metadata in metadataorder
+            # Note: I'm assuming timestamps are always integers here.
+            if metadata.type == "ExposureStarted"
+                exposurestarted[i] = read(io, Int64)
+            elseif metadata.type == "ExposureEnded"
+                exposureended[i] = read(io, Int64)
+            else
+                skip(io, metadata.size)
+            end
+        end
     end
-    SPEFile{dtype}(xml, file_version, frames)
+    SPEFile{dtype}(xml, file_version, frames, exposurestarted, exposureended)
 end
 
 """
@@ -303,11 +358,11 @@ counts(f::SPEFile, frames) = map(x -> f.frames[x][1], frames)
 counts(f::SPEFile, frames, rois) = map(x -> f.frames[x][rois], frames)
 
 # Tables.jl interface
-const COLUMNS = Symbol.(["wavelength", "count", "frame", "roi", "row", "column"])
+const COLUMNS = Symbol.(["wavelength", "count", "frame", "roi", "row", "column", "exposurestarted", "exposureended"])
 Tables.istable(::Type{<:SPEFile}) = true
 Tables.schema(::SPEFile{T}) where {T} = Tables.Schema(
     COLUMNS,
-    [Float64, T, Int, Int, Int, Int]
+    [Float64, T, Int, Int, Int, Int, Union{Missing, Int64}, Union{Missing, Int64}]
 )
 Tables.columnaccess(::Type{<:SPEFile}) = true
 Tables.columns(f::SPEFile) = f
@@ -340,6 +395,20 @@ function Tables.getcolumn(f::SPEFile, nm::Symbol)
         size_rois = size.(first(f.frames))
         col_num = vcat(Iterators.flatten([repeat(0:(c-1), r) for (r,c) in size_rois])...)
         repeat(col_num, n_frames)
+    elseif nm == :exposurestarted
+        size_one_frame = sum([l for l in length.(first(f.frames))])
+        if ismissing(f.frameexposurestarted)
+            repeat([missing], size_one_frame*length(f.frames))
+        else
+            vcat([repeat([e], size_one_frame) for e in f.frameexposurestarted]...)       
+        end
+    elseif nm == :exposureended
+        size_one_frame = sum([l for l in length.(first(f.frames))])
+        if ismissing(f.frameexposureended)
+            repeat([missing], size_one_frame*length(f.frames))
+        else
+            vcat([repeat([e], size_one_frame) for e in f.frameexposureended]...)       
+        end
     else
         throw(ArgumentError("Column $nm does not exist for a SPEFile."))
     end
