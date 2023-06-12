@@ -212,6 +212,39 @@ function Base.length(f::SPEFile)
 end
 
 """
+    generalinformation(f::SPEFile)
+
+Return the `GeneralIntormation` tag of the file.
+"""
+function generalinformation end
+generalinformation(f::SPEFile) = generalinformation(f.xml)
+function generalinformation(xml::XMLDocument)
+    r = root(xml)
+    e = find_element(r, "GeneralInformation")
+    if isnothing(e) missing else e end
+end
+
+"""
+    notes(f::SPEFile)
+
+Return the notes in the file, if they exist.
+"""
+function notes end
+notes(f::SPEFile) = notes(f.xml)
+function notes(xml::XMLDocument)
+    infos = generalinformation(xml)
+    if ismissing(infos)
+        return missing
+    end
+    notes = find_element(infos, "Notes")
+    if isnothing(notes)
+        missing
+    else
+        content(notes)
+    end
+end
+
+"""
     history(f::SPEFile)
 
 Return the history node of the object if it exists.
@@ -325,7 +358,7 @@ function wavelength(xml::XMLDocument)
     wavelengthmapping = find_element(calibrations, "WavelengthMapping")
     wavelengthnode = find_element(wavelengthmapping, "Wavelength")
     if isnothing(wavelengthnode)
-        @warn "Wavelength node not found. Falling back to WavelengthError."
+        @debug "Wavelength node not found. Falling back to WavelengthError."
         wavelengthnode = find_element(wavelengthmapping, "WavelengthError")
         if isnothing(wavelengthnode)
             error("No wavelength found.")
@@ -431,6 +464,6 @@ function Base.propertynames(::SPEFile{T}, private::Bool=false) where {T}
     [COLUMNS; fieldnames(SPEFile{T})...]
 end
 
-export SPEFile, experiment, devices, exposure, wavelength, counts, origin_summary
+export SPEFile, experiment, devices, exposure, wavelength, counts, origin_summary, notes
 
 end
