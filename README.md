@@ -1,5 +1,8 @@
 # SPEFiles
 
+[![Build Status](https://github.com/klafyvel/SPEFiles.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/klafyvel/SPEFiles.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Test Coverage](https://codecov.io/gh/Klafyvel/SPEFiles.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/Klafyvel/SPEFiles.jl)
+
 SPEFiles is a librairy aiming at providing utilities to open Princeton
 instruments SPE 3.0 files. 
 
