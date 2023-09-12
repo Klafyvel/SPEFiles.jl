@@ -48,17 +48,17 @@ function Tables.getcolumn(f::SPEFile{Version3, T}, nm::Symbol) where {T}
         repeat(col_num, n_frames)
     elseif nm == :exposurestarted
         size_one_frame = sum([l for l in length.(first(f.frames))])
-        if ismissing(f.frameexposurestarted)
+        if ismissing(f.metadata.frameexposurestarted)
             repeat([missing], size_one_frame*length(f.frames))
         else
-            vcat([repeat([e], size_one_frame) for e in f.frameexposurestarted]...)       
+            vcat([repeat([e], size_one_frame) for e in f.metadata.frameexposurestarted]...)       
         end
     elseif nm == :exposureended
         size_one_frame = sum([l for l in length.(first(f.frames))])
-        if ismissing(f.frameexposureended)
+        if ismissing(f.metadata.frameexposureended)
             repeat([missing], size_one_frame*length(f.frames))
         else
-            vcat([repeat([e], size_one_frame) for e in f.frameexposureended]...)       
+            vcat([repeat([e], size_one_frame) for e in f.metadata.frameexposureended]...)       
         end
     else
         throw(ArgumentError("Column $nm does not exist for a SPEFile v3."))
@@ -98,14 +98,10 @@ Tables.columnnames(::SPEFile{Version2, T}) where {T} = COLUMNS_V2
 Tables.columnnames(::SPEFile{Version3, T}) where {T} = COLUMNS_V3
 
 function Base.getproperty(f::T, sym::Symbol) where {T<:SPEFile}
-    try
+    if hasfield(T, sym)
+        getfield(f, sym)
+    else
         Tables.getcolumn(f, sym)
-    catch e
-        if e isa ArgumentError 
-            getfield(f, sym)
-        else
-            rethrow(e)
-        end
     end
 end
 
